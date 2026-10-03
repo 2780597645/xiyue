@@ -206,7 +206,7 @@
     $("srvAddr").textContent=addr;setSrv(false,"连接中…");
     socket=new WebSocket("ws://"+addr+"/ws");
     socket.onopen=function(){setSrv(true,"已连接");clearTimers();
-      timers.push(setInterval(getHome,1000));timers.push(setInterval(getGame,100));
+      timers.push(setInterval(getHome,1000));timers.push(setInterval(getGame,70));
       timers.push(setInterval(渲染顶上,400));getHome();};
     socket.onmessage=function(e){var d=e.data.split("##");
       if(d[0]==="homeData"){渲染房间(d[1]);}
@@ -257,7 +257,7 @@
   // ===== 地图绘制 =====
   function draw(p){
     ctx.clearRect(0,0,W,W);
-    if(mapImg.complete&&mapImg.naturalWidth)ctx.drawImage(mapImg,0,0,W,W);
+    if(baseReady)ctx.drawImage(baseCanvas,0,0,W,W);
     else{ctx.fillStyle="#22302a";ctx.fillRect(0,0,W,W);}
     // 技能轨迹
     (p[3]||"").split("==").forEach(function(s){
@@ -292,13 +292,11 @@
     英雄信息.forEach(function(rw){
       if(rw.length<9||!rw[0])return;
       var x=mx(+rw[5],'c')+cal.px,y=my(+rw[6],'c')+cal.py;
-      var camp=+rw[8],hp=+rw[7],av=34,im=new Image();
-      // 用缓存图(预加载)
-      var key=rw[0],im=heroCache[key];if(!im){im=heroCache[key]=new Image();im.src=uAvatar(key);}
-      ctx.save();ctx.beginPath();ctx.arc(x,y,av,0,7);ctx.closePath();ctx.clip();
-      if(im.complete&&im.naturalWidth)ctx.drawImage(im,x-av,y-av,av*2,av*2);
-      else{ctx.fillStyle="#444";ctx.fillRect(x-av,y-av,av*2,av*2);}
-      ctx.restore();
+      var camp=+rw[8],hp=+rw[7],av=34,key=rw[0];
+      var rac=roundAvatar(key);
+      if(rac)ctx.drawImage(rac,x-av,y-av,av*2,av*2);
+      else{ctx.save();ctx.beginPath();ctx.arc(x,y,av,0,7);ctx.closePath();ctx.clip();
+        ctx.fillStyle="#444";ctx.fillRect(x-av,y-av,av*2,av*2);ctx.restore();}
       ctx.beginPath();ctx.arc(x,y,av,0,7);ctx.lineWidth=4;
       ctx.strokeStyle=(camp===1)?"#3a93f5":"#f0533f";ctx.stroke();
       var bw=72,bx=x-bw/2,by=y+av+8,w=Math.max(0,Math.min(100,hp))/100*bw;
@@ -308,8 +306,25 @@
         ctx.textAlign="center";ctx.fillText("回城",x,y-av-12);}
     });
   }
-  var heroCache={};
-  var mapImg=new Image();mapImg.src="map.png";
+  var heroCache={}, avatarRound={};
+  // 底图离屏缓存(1:1, 避免每帧重绘大图)
+  var baseCanvas=document.createElement('canvas');baseCanvas.width=W;baseCanvas.height=W;
+  var bctx=baseCanvas.getContext('2d'),baseReady=false;
+  var mapImg=new Image();
+  mapImg.onload=function(){bctx.drawImage(mapImg,0,0,W,W);baseReady=true;};
+  mapImg.src="map.png";
+  // 圆形头像缓存(图片就绪后生成离屏圆图, 免去每帧clip)
+  function roundAvatar(key){
+    if(avatarRound[key])return avatarRound[key];
+    var im=heroCache[key];
+    if(!im){im=heroCache[key]=new Image();im.onload=function(){avatarRound[key]=null;};im.src=uAvatar(key);}
+    if(im.complete&&im.naturalWidth){
+      var c=document.createElement('canvas');c.width=136;c.height=136;var cc=c.getContext('2d');
+      cc.beginPath();cc.arc(68,68,68,0,7);cc.clip();cc.drawImage(im,0,0,136,136);
+      avatarRound[key]=c;return c;
+    }
+    return null;
+  }
 
   // 阵营切换
   $("campRed").onclick=function(){showCamp=2;$("campRed").className="on";$("campBlue").className="";渲染顶上();};
