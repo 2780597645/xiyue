@@ -61,6 +61,9 @@
     #myCanvas{max-height:48vh;}
     .cell .av{width:44px;height:44px;} .slot,.slot img{width:40px;height:40px;}
   }
+.maptool{display:flex;justify-content:flex-end;margin:6px 2px 0;}
+.maptool button{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#cfd6e4;border-radius:10px;padding:7px 16px;font-size:13px;}
+.maptool button.on{background:#1fb577;color:#fff;border-color:#1fb577;}
 </style>
 </head>
 <body>
@@ -90,6 +93,7 @@
       <div class="grid5" id="topGrid"></div>
     </div>
 
+    <div class="maptool"><button id="showAllyBtn">显示队友</button></div>
     <div class="map-wrap">
       <canvas id="myCanvas" width="1000" height="1000"></canvas>
     </div>
@@ -196,6 +200,27 @@
 
   // ===== 状态 =====
   var socket=null, homeId="", 英雄信息=[], timers=[], showCamp=2;
+  var showAlly=false, selfCamp=null;          // 队友默认隐藏; 自己阵营(由isSelf标记推导)
+  var dispHero={};                           // 英雄显示坐标(平滑追赶, id->{x,y})
+  var latestP=null, needDraw=false, rafOn=false, lastFrame=0;
+  function startLoop(){ if(!rafOn){rafOn=true;lastFrame=performance.now();requestAnimationFrame(loop);} }
+  function loop(now){
+    var dt=now-lastFrame; lastFrame=now; if(dt<=0||dt>100)dt=16;
+    var k=Math.min(1,dt/90), maxMove=0;
+    英雄信息.forEach(function(rw){
+      if(rw.length<9||!rw[0])return;
+      var id=rw[0];
+      if(+rw[11]===1)selfCamp=+rw[8];
+      var tx=mx(+rw[5],'c')+cal.px, ty=my(+rw[6],'c')+cal.py;
+      var dd=dispHero[id];
+      if(!dd){dispHero[id]={x:tx,y:ty};}
+      else{var nx=dd.x+(tx-dd.x)*k, ny=dd.y+(ty-dd.y)*k;
+        maxMove=Math.max(maxMove,Math.abs(nx-dd.x),Math.abs(ny-dd.y));
+        dd.x=nx;dd.y=ny;}
+    });
+    if((needDraw||maxMove>0.3)&&latestP){needDraw=false;draw(latestP);}
+    if(socket){requestAnimationFrame(loop);}else{rafOn=false;}
+  }
   function setSrv(ok,txt){$("srvState").textContent=txt;
     $("srvDot").style.background=ok?'var(--green)':'var(--red)';}
   function clearTimers(){timers.forEach(clearInterval);timers=[];}
@@ -213,7 +238,7 @@
       else if(d[0]==="gameData"){
         var p=d[1].split("---");
         英雄信息=(p[0]||"").split("==").filter(function(s){return s;}).map(function(s){return s.split(",");});
-        draw(p);
+        latestP=p;needDraw=true;startLoop();
       }};
     socket.onclose=function(){setSrv(false,"已断开");clearTimers();};
     socket.onerror=function(){setSrv(false,"连接错误");};
@@ -291,8 +316,13 @@
     // 英雄(头像偏移)
     英雄信息.forEach(function(rw){
       if(rw.length<9||!rw[0])return;
-      var x=mx(+rw[5],'c')+cal.px,y=my(+rw[6],'c')+cal.py;
-      var camp=+rw[8],hp=+rw[7],av=34,key=rw[0];
+      var key=rw[0],isSelf=+rw[11]===1,camp=+rw[8];
+      var isAlly=!isSelf&&selfCamp!=null&&camp===selfCamp;   // 同阵营非自己=队友
+      if(isAlly&&!showAlly)return;                          // 队友默认隐藏
+      var dp2=dispHero[key];
+      var x=dp2?dp2.x:(mx(+rw[5],'c')+cal.px);
+      var y=dp2?dp2.y:(my(+rw[6],'c')+cal.py);
+      var hp=+rw[7],av=34;
       var rac=roundAvatar(key);
       if(rac)ctx.drawImage(rac,x-av,y-av,av*2,av*2);
       else{ctx.save();ctx.beginPath();ctx.arc(x,y,av,0,7);ctx.closePath();ctx.clip();
@@ -329,6 +359,8 @@
   // 阵营切换
   $("campRed").onclick=function(){showCamp=2;$("campRed").className="on";$("campBlue").className="";渲染顶上();};
   $("campBlue").onclick=function(){showCamp=1;$("campBlue").className="on";$("campRed").className="";渲染顶上();};
+  $("showAllyBtn").onclick=function(){showAlly=!showAlly;
+    this.className=showAlly?"on":"";needDraw=true;startLoop();};
 
   // 手动连接房间
   $("linkHome").onclick=function(){var v=$("homeIdInput").value.trim();
